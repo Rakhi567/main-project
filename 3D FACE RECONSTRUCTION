@@ -1,0 +1,235 @@
+import tkinter as tk
+from tkinter import ttk, filedialog
+import cv2
+import dlib
+import numpy as np
+from imutils import face_utils
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import pickle
+from PIL import Image, ImageTk
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+from sklearn.model_selection import train_test_split
+import os
+import numpy as np
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("3D Face Reconstruction")
+        self.root.geometry("600x400") 
+        self.root.configure(bg="#000000") 
+
+        self.load_button = ttk.Button(root, text="Load Image", command=self.load_image, style='Custom.TButton')
+        self.load_button.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+        self.detect_button = ttk.Button(root, text="Detect Landmarks", command=self.detect_landmarks, style='Custom.TButton')
+        self.detect_button.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+        self.reconstruct_button = ttk.Button(root, text="Reconstruct 3D Face", command=self.reconstruct_3d_face, style='Custom.TButton')
+        self.reconstruct_button.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+        self.style = ttk.Style()
+        self.style.configure('Custom.TButton', background='#4CAF50', foreground='black', font=('Helvetica', 12, 'bold'))
+
+    def load_image(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            self.image = cv2.imread(file_path)
+            self.show_image()
+
+    def convert_image_to_tkinter(self, image):
+        height, width, channels = image.shape
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = cv2.resize(image, (int(width / 4), int(height / 4)))
+        image = Image.fromarray(image)
+        img_tk = ImageTk.PhotoImage(image=image)
+        return img_tk
+
+    def show_image(self):
+        image_rgb = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+        img_tk = self.convert_image_to_tkinter(image_rgb)
+
+        self.panel = tk.Label(self.root, image=img_tk)
+        self.panel.image = img_tk
+        self.panel.pack()
+
+    def detect_landmarks(self):
+        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        detector = dlib.get_frontal_face_detector()
+        predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+        rects = detector(gray, 0)
+
+        for rect in rects:
+            shape = predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)
+
+            for (x, y) in shape:
+                cv2.circle(self.image, (x, y), 1, (0, 255, 0), -1)
+
+        self.show_image()
+
+    def fit_3dmm_model(self, model, landmarks):
+        # Placeholder implementation, replace with actual fitting process
+        shape_3d = np.random.rand(len(landmarks), 3)
+        texture_3d = np.ones_like(shape_3d)
+        return shape_3d, texture_3d
+
+    def visualize_3d_face(self, shape_3d, texture_3d):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(shape_3d[:, 0], shape_3d[:, 1], shape_3d[:, 2], color="green", marker='o')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        plt.show()
+
+    def reconstruct_3d_face(self):
+        dataset_dir = "img"
+
+        # List all image files in the dataset directory
+        image_files = [os.path.join(dataset_dir, filename) for filename in os.listdir(dataset_dir)]
+
+        # Load images and corresponding labels
+        images = []
+        labels = []
+
+        for image_file in image_files:
+            # Load image
+            image = tf.keras.preprocessing.image.load_img(image_file, target_size=(64, 64))
+            image = tf.keras.preprocessing.image.img_to_array(image)
+            images.append(image)
+            
+            # Extract label from filename
+            label = 1 if "class1" in image_file else 0  # Example: class1 indicates positive class, others are negative
+            labels.append(label)
+
+        # Convert lists to numpy arrays
+        X = np.array(images)
+        y = np.array(labels)
+
+        # Split the dataset into training and testing sets
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # Define the CNN model
+        model = Sequential([
+            Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
+            MaxPooling2D((2, 2)),
+            Conv2D(64, (3, 3), activation='relu'),
+            MaxPooling2D((2, 2)),
+            Conv2D(64, (3, 3), activation='relu'),
+            Flatten(),
+            Dense(64, activation='relu'),
+            Dense(1, activation='sigmoid')  # Output layer for binary classification
+        ])
+
+        # Compile the model
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+        # Train the model
+        model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        detector = dlib.get_frontal_face_detector()
+        predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+        rects = detector(gray, 0)
+
+        for rect in rects:
+            shape = predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)
+
+            model = self.load_3dmm_model("facial_landmarks.pickle")
+            shape_3d, texture_3d = self.fit_3dmm_model(model, shape)
+            self.visualize_3d_face(shape_3d, texture_3d)
+        detector = dlib.get_frontal_face_detector()
+        predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+        # Load the input image
+        #image = cv2.imread("s7.png")
+        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+
+        # Detect faces in the image
+        rects = detector(gray, 0)
+
+        # Loop over the detected faces
+        for rect in rects:
+            # Detect facial landmarks
+            shape = predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)  # Convert dlib shape to numpy array
+
+            # Draw face outline
+            cv2.polylines(self.image, [shape[0:17]], True, (0, 255, 0), thickness=2)  # Jawline
+            cv2.polylines(self.image, [shape[17:22]], True, (0, 255, 0), thickness=2)  # Right eyebrow
+            cv2.polylines(self.image, [shape[22:27]], True, (0, 255, 0), thickness=2)  # Left eyebrow
+            cv2.polylines(self.image, [shape[27:31]], True, (0, 255, 0), thickness=2)  # Nose bridge
+            cv2.polylines(self.image, [shape[31:36]], True, (0, 255, 0), thickness=2)  # Nose base
+            cv2.polylines(self.image, [shape[36:42]], True, (0, 255, 0), thickness=2)  # Right eye
+            cv2.polylines(self.image, [shape[42:48]], True, (0, 255, 0), thickness=2)  # Left eye
+            cv2.polylines(self.image, [shape[48:60]], True, (0, 255, 0), thickness=2)  # Outer lip
+            cv2.polylines(self.image, [shape[60:68]], True, (0, 255, 0), thickness=2)  # Inner lip
+
+        # Display the image with facial landmarks
+        cv2.imshow("Facial Landmarks", self.image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+        # Create a grid of X and Y coordinates
+        x = np.linspace(0, gray.shape[1] - 1, gray.shape[1])
+        y = np.linspace(0, gray.shape[0] - 1, gray.shape[0])
+        X, Y = np.meshgrid(x, y)
+
+        # Convert pixel values to height values
+        Z = gray / 255.0  # Normalize pixel values to [0, 1]
+
+        # Create 3D plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot the surface
+        ax.plot_surface(X, Y, Z, cmap='gray')
+
+        # Set labels
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Intensity')
+
+        x = np.arange(gray.shape[1])
+        y = np.arange(gray.shape[0])
+        X, Y = np.meshgrid(x, y)
+
+        # Convert pixel intensities to heights for 3D plot
+        Z = gray
+
+        # Create 3D plot
+        fig = plt.figure(figsize=(10, 5))
+        ax1 = fig.add_subplot(121)  # 2D plot
+        ax2 = fig.add_subplot(122, projection='3d')  # 3D plot
+
+        # Plot the 2D image
+        ax1.imshow(gray, cmap='gray')
+        ax1.set_title('2D Image')
+
+        # Plot the 3D surface
+        ax2.plot_surface(X, Y, Z, cmap='gray')
+        ax2.set_title('3D Surface')
+
+        # Set labels for 3D plot
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        ax2.set_zlabel('Intensity')
+
+        # Show plots
+        plt.tight_layout()
+        plt.show()
+
+
+    def load_3dmm_model(self, model_file):
+        with open(model_file, 'rb') as f:
+            model = pickle.load(f)
+        return model
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
